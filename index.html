@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Pix Runner 3D</title>
+<style>
+  :root{color-scheme:dark}
+  *{box-sizing:border-box}
+  body{margin:0;background:#071321;color:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;overflow:hidden}
+  #game{display:block;width:100vw;height:100dvh;touch-action:none}
+  .hud{position:fixed;inset:12px 12px auto;display:flex;justify-content:space-between;gap:10px;pointer-events:none}
+  .pill{background:#071321c9;border:1px solid #ffffff30;border-radius:14px;padding:9px 13px;font-weight:800;backdrop-filter:blur(8px)}
+  .center{position:fixed;inset:0;display:grid;place-items:center;padding:20px;background:#04101a80}
+  .panel{max-width:440px;width:100%;background:#0a1b2ceF;border:1px solid #ffffff2c;border-radius:24px;padding:25px;text-align:center;box-shadow:0 20px 80px #0008}
+  h1{margin:0 0 8px;font-size:clamp(28px,7vw,42px)} p{color:#c4d5e7;line-height:1.5}
+  button{border:0;border-radius:14px;background:#16c784;color:#03251a;font-weight:900;font-size:17px;padding:14px 18px;width:100%;margin-top:10px;cursor:pointer}
+  button.secondary{background:#233b54;color:#fff}
+  .small{font-size:12px;color:#a9bfd2}
+  .hide{display:none!important}
+  #controls{position:fixed;bottom:18px;left:0;right:0;display:flex;justify-content:center;gap:12px;pointer-events:none}
+  #controls button{pointer-events:auto;width:64px;height:58px;padding:0;margin:0;background:#0a1b2ccc;color:white;border:1px solid #ffffff40;font-size:24px}
+  #payStatus{min-height:22px;color:#ffe08a;font-size:14px}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div class="hud"><div class="pill">🪙 <span id="coins">0</span></div><div class="pill">🏁 <span id="score">0</span></div></div>
+<div id="menu" class="center"><div class="panel">
+  <h1>🤑 Pix Runner 3D</h1>
+  <p>Corra pela cidade, desvie dos obstáculos e colete moedas. Um jogo de corrida infinita com visual 3D estilizado.</p>
+  <button id="start">JOGAR GRÁTIS</button>
+  <button id="pay" class="secondary">ENTRADA PIX — R$ 5,00 (DEMO)</button>
+  <div id="payStatus"></div>
+  <p class="small">A cobrança Pix está em modo de demonstração. Nenhum pagamento real é processado por este arquivo.</p>
+</div></div>
+<div id="over" class="center hide"><div class="panel">
+  <h1>Fim de jogo!</h1><p>Você fez <b id="finalScore">0</b> pontos e coletou <b id="finalCoins">0</b> moedas.</p>
+  <button id="again">JOGAR NOVAMENTE</button><button id="back" class="secondary">VOLTAR AO MENU</button>
+</div></div>
+<div id="controls"><button id="left">◀</button><button id="jump">⬆</button><button id="duck">⬇</button><button id="right">▶</button></div>
+<script>
+(() => {
+ const canvas=document.querySelector('#game'),ctx=canvas.getContext('2d');
+ const $=id=>document.getElementById(id);
+ let W=0,H=0,dpr=1,playing=false,score=0,coins=0,lane=0,playerY=0,jumpT=0,duckT=0,speed=0.34,objects=[],last=0,spawn=0;
+ function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(dpr,0,0,dpr,0,0)}
+ addEventListener('resize',resize);resize();
+ const horizon=()=>H*.27;
+ function project(x,z,y=0){let t=1/(z+0.18),scale=.17+t*1.05;return {x:W/2+x*W*.22*scale,y:horizon()+(H*.68)*scale-y*scale*H*.16,scale}}
+ function draw(){
+   ctx.clearRect(0,0,W,H);
+   let sky=ctx.createLinearGradient(0,0,0,H);sky.addColorStop(0,'#59b8e8');sky.addColorStop(.43,'#d1efff');sky.addColorStop(.44,'#7c91a0');sky.addColorStop(1,'#182d3c');ctx.fillStyle=sky;ctx.fillRect(0,0,W,H);
+   // distant city
+   for(let i=0;i<20;i++){let x=(i/20)*W, bh=(.07+((i*37)%11)/100)*H;ctx.fillStyle=i%2?'#4e7188':'#6a8799';ctx.fillRect(x,horizon()-bh,W/22,bh)}
+   // track trapezoid
+   ctx.fillStyle='#38444e';ctx.beginPath();ctx.moveTo(W*.43,horizon());ctx.lineTo(W*.57,horizon());ctx.lineTo(W*1.02,H);ctx.lineTo(-W*.02,H);ctx.closePath();ctx.fill();
+   ctx.strokeStyle='#d7e5eb';ctx.lineWidth=3;
+   for(let x of [-.5,.5]){ctx.beginPath();ctx.moveTo(W/2+x*W*.07,horizon());ctx.lineTo(W/2+x*W*.52,H);ctx.stroke()}
+   // ties
+   for(let i=0;i<18;i++){let z=(i/18+((performance.now()/1000*speed)%1)) ;let p1=project(-1,z),p2=project(1,z);ctx.strokeStyle='#182832';ctx.lineWidth=Math.max(1,p1.scale*8);ctx.beginPath();ctx.moveTo(p1.x,p1.y);ctx.lineTo(p2.x,p2.y);ctx.stroke()}
+   // side trains and buildings
+   for(let side of [-1,1]){for(let i=0;i<5;i++){let z=.25+i*.48,p=project(side*1.75,z);let ww= W*.13*p.scale,hh=H*.45*p.scale;ctx.fillStyle=side<0?'#26546c':'#305f75';ctx.fillRect(p.x-ww/2,p.y-hh,ww,hh);ctx.fillStyle='#b8e9fa';for(let j=0;j<3;j++)ctx.fillRect(p.x-ww*.35+j*ww*.27,p.y-hh*.8,ww*.12,hh*.13)}}
+   // lane markers
+   for(let z=.15;z<5;z+=.35){let p=project(0,z);let s=p.scale;ctx.fillStyle='#d4dce0';ctx.fillRect(p.x-2*s,p.y,4*s,18*s)}
+   // game objects
+   objects.forEach(o=>{let p=project(o.lane*.5,o.z);if(o.type==='coin'){ctx.fillStyle='#ffd84a';ctx.beginPath();ctx.ellipse(p.x,p.y-20*p.scale,10*p.scale,14*p.scale,0,0,Math.PI*2);ctx.fill();ctx.strokeStyle='#fff1a2';ctx.lineWidth=2*p.scale;ctx.stroke()}else{ctx.fillStyle=o.type==='train'?'#ed654e':'#ffb13b';let ww=44*p.scale,hh=(o.type==='train'?100:50)*p.scale;ctx.fillRect(p.x-ww/2,p.y-hh,ww,hh);ctx.fillStyle='#253746';ctx.fillRect(p.x-ww*.3,p.y-hh*.75,ww*.6,hh*.25)}});
+   // player shadow + runner
+   let pp=project(lane*.5,.18,playerY);let lift=Math.max(0,playerY)*H*.15;
+   ctx.fillStyle='#0005';ctx.beginPath();ctx.ellipse(pp.x,pp.y+5,22,8,0,0,Math.PI*2);ctx.fill();
+   ctx.save();ctx.translate(pp.x,pp.y-lift);let duck=duckT>0?.55:1;ctx.scale(1,duck);
+   ctx.fillStyle='#f7c49a';ctx.beginPath();ctx.arc(0,-55,14,0,Math.PI*2);ctx.fill();
+   ctx.fillStyle='#162b49';ctx.fillRect(-15,-42,30,38);
+   ctx.strokeStyle='#f7c49a';ctx.lineWidth=9;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-10,-35);ctx.lineTo(-22,-15);ctx.moveTo(10,-35);ctx.lineTo(22,-15);ctx.stroke();
+   ctx.strokeStyle='#263d5b';ctx.lineWidth=10;ctx.beginPath();ctx.moveTo(-7,-4);ctx.lineTo(-12,15);ctx.moveTo(7,-4);ctx.lineTo(12,15);ctx.stroke();ctx.restore();
+   if(playing){score+=.12; $('score').textContent=Math.floor(score);$('coins').textContent=coins}
+   requestAnimationFrame(draw);
+ }
+ function start(){playing=true;score=0;coins=0;lane=0;objects=[];spawn=0;jumpT=0;duckT=0;$('menu').classList.add('hide');$('over').classList.add('hide');last=performance.now()}
+ function end(){playing=false;$('finalScore').textContent=Math.floor(score);$('finalCoins').textContent=coins;$('over').classList.remove('hide')}
+ function move(d){if(playing)lane=Math.max(-1,Math.min(1,lane+d))}
+ function jump(){if(playing&&jumpT<=0)jumpT=1}
+ function duck(){if(playing)duckT=.7}
+ function update(t){let dt=Math.min((t-last)/1000,.04);last=t;if(playing){spawn+=dt;if(spawn>.75){spawn=0;let l=Math.floor(Math.random()*3)-1;objects.push({lane:l,z:4.8,type:Math.random()<.25?'train':'barrier'});if(Math.random()<.65)objects.push({lane:Math.floor(Math.random()*3)-1,z:5.2,type:'coin'})}
+  objects.forEach(o=>o.z-=dt*speed*2.5);objects=objects.filter(o=>o.z>-.1);
+  if(jumpT>0){jumpT-=dt*1.7;playerY=Math.sin(Math.max(0,jumpT)*Math.PI/2)}else playerY=0;
+  if(duckT>0)duckT-=dt;
+  for(let o of objects){if(o.z<.23&&o.z>-.05&&o.lane===lane){if(o.type==='coin'){coins++;o.z=-1}else if(!(jumpT>.25&&o.type==='barrier')&&!(duckT>.2&&o.type==='barrier')){end();break}}}
+ }requestAnimationFrame(update)}
+ $('start').onclick=start;$('again').onclick=start;$('back').onclick=()=>{$('over').classList.add('hide');$('menu').classList.remove('hide')};
+ $('pay').onclick=()=>{$('payStatus').textContent='Demonstração: configure um provedor Pix no servidor para habilitar pagamentos reais.'};
+ $('left').onclick=()=>move(-1);$('right').onclick=()=>move(1);$('jump').onclick=jump;$('duck').onclick=duck;
+ addEventListener('keydown',e=>{if(e.key==='ArrowLeft'||e.key==='a')move(-1);if(e.key==='ArrowRight'||e.key==='d')move(1);if(e.key==='ArrowUp'||e.key===' ')jump();if(e.key==='ArrowDown'||e.key==='s')duck()});
+ let tx=0,ty=0;canvas.addEventListener('touchstart',e=>{tx=e.changedTouches[0].clientX;ty=e.changedTouches[0].clientY},{passive:true});canvas.addEventListener('touchend',e=>{let dx=e.changedTouches[0].clientX-tx,dy=e.changedTouches[0].clientY-ty;if(Math.abs(dx)>25)move(dx>0?1:-1);else if(Math.abs(dy)>25){dy<0?jump():duck()}},{passive:true});
+ requestAnimationFrame(draw);requestAnimationFrame(update);
+})();
+</script>
+</body>
+</html>
